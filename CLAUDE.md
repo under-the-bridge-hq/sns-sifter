@@ -62,6 +62,7 @@ docs/               ドキュメント
 
 ## ドキュメント
 
-- [xmcp MCP サーバー](docs/xmcp.md) — セットアップ、認証、トラブルシューティング
-- [X API リファレンス](docs/x-api.md) — エンドポイント、料金、ツール一覧
+- [設計方針・経緯](docs/design-decisions.md) — アーキテクチャ判断、コスト最適化、今後の拡張予定
 - [sifter CLI リファレンス](docs/sifter-cli.md) — コマンド、スキーマ、コスト最適化
+- [X API リファレンス](docs/x-api.md) — エンドポイント、料金、ツール一覧
+- [xmcp MCP サーバー](docs/xmcp.md) — セットアップ、認証、トラブルシューティング
