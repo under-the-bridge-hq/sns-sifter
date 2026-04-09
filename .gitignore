@@ -1,0 +1,23 @@
+# Environment
+.env
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Go
+cmd/sifter/sifter
+*.db
+
+# Claude Code
+CLAUDE.local.md
