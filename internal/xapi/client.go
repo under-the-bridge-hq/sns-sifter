@@ -76,6 +76,12 @@ func (c *Client) get(path string, params map[string]string) ([]byte, error) {
 	return body, nil
 }
 
+// RawGet はデバッグ用に生のレスポンス body を返す。
+// 通常のコードパスでは使わず、APIレスポンスの構造調査専用。
+func (c *Client) RawGet(path string, params map[string]string) ([]byte, error) {
+	return c.get(path, params)
+}
+
 func (c *Client) GetUserByUsername(username string) (*User, error) {
 	params := map[string]string{
 		"user.fields": "id,username,name,description,public_metrics",

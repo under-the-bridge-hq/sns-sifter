@@ -39,3 +39,20 @@ type APIError struct {
 func (e *APIError) Error() string {
 	return e.Title + ": " + e.Detail
 }
+
+type Tweet struct {
+	ID        string `json:"id"`
+	Text      string `json:"text"`
+	AuthorID  string `json:"author_id"`
+	CreatedAt string `json:"created_at"`
+}
+
+type TweetIncludes struct {
+	Users []User `json:"users"`
+}
+
+type TweetsResponse struct {
+	Data     []Tweet       `json:"data"`
+	Includes TweetIncludes `json:"includes"`
+	Meta     ResponseMeta  `json:"meta"`
+}
