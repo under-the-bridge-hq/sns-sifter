@@ -3,6 +3,8 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/under-the-bridge-hq/sns-sifter/internal/xapi"
@@ -106,6 +108,86 @@ func GetUsersByIDs(db *sql.DB, ids []string) ([]xapi.User, error) {
 
 type UserFilter struct {
 	Keyword string
+}
+
+// CompareOptions は following compare の絞り込み条件
+type CompareOptions struct {
+	// Keywords は OR マッチ (description / name / username の LIKE)
+	Keywords []string
+	// SortBy: "followers" | "following" | "tweets" | "listed" (デフォルト followers)
+	SortBy string
+	// Top: 上位 N 件 (0 で無制限)
+	Top int
+	// ExcludeBaseUserID: ベースユーザー自身を結果から除外
+	ExcludeBaseUserID string
+}
+
+// CompareFollowing は refSyncID がフォローしていて baseSyncID がフォローしていないユーザーを返す。
+// API コールは発生せず DB のみで完結する。
+func CompareFollowing(db *sql.DB, baseSyncID, refSyncID int64, opts *CompareOptions) ([]xapi.User, error) {
+	if opts == nil {
+		opts = &CompareOptions{}
+	}
+
+	query := `
+		SELECT u.id, u.username, u.name, u.description, u.public_metrics_json
+		FROM following f_ref
+		JOIN users u ON u.id = f_ref.target_user_id
+		WHERE f_ref.sync_id = ?
+		  AND u.id NOT IN (SELECT target_user_id FROM following WHERE sync_id = ?)
+	`
+	args := []any{refSyncID, baseSyncID}
+
+	if opts.ExcludeBaseUserID != "" {
+		query += " AND u.id != ?"
+		args = append(args, opts.ExcludeBaseUserID)
+	}
+
+	if len(opts.Keywords) > 0 {
+		clauses := make([]string, 0, len(opts.Keywords))
+		for _, kw := range opts.Keywords {
+			clauses = append(clauses, "(u.description LIKE ? OR u.name LIKE ? OR u.username LIKE ?)")
+			like := "%" + kw + "%"
+			args = append(args, like, like, like)
+		}
+		query += " AND (" + strings.Join(clauses, " OR ") + ")"
+	}
+
+	sortField := "followers_count"
+	switch opts.SortBy {
+	case "following":
+		sortField = "following_count"
+	case "tweets":
+		sortField = "tweet_count"
+	case "listed":
+		sortField = "listed_count"
+	case "", "followers":
+		sortField = "followers_count"
+	}
+	query += fmt.Sprintf(" ORDER BY CAST(json_extract(u.public_metrics_json, '$.%s') AS INTEGER) DESC", sortField)
+
+	if opts.Top > 0 {
+		query += " LIMIT ?"
+		args = append(args, opts.Top)
+	}
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []xapi.User
+	for rows.Next() {
+		var u xapi.User
+		var metricsJSON string
+		if err := rows.Scan(&u.ID, &u.Username, &u.Name, &u.Description, &metricsJSON); err != nil {
+			return nil, err
+		}
+		json.Unmarshal([]byte(metricsJSON), &u.PublicMetrics)
+		users = append(users, u)
+	}
+	return users, rows.Err()
 }
 
 func SearchFollowing(db *sql.DB, syncID int64, filter *UserFilter) ([]xapi.User, error) {

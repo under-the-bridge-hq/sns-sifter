@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/under-the-bridge-hq/sns-sifter/internal/mcpclient"
 	"github.com/under-the-bridge-hq/sns-sifter/internal/store"
 	"github.com/under-the-bridge-hq/sns-sifter/internal/xapi"
 )
@@ -13,6 +14,7 @@ import (
 type App struct {
 	DB      *sql.DB
 	Client  *xapi.Client
+	MCP     *mcpclient.Client
 	Verbose bool
 }
 
@@ -23,6 +25,10 @@ func Run(args []string) int {
 		dbPath = filepath.Join(home, ".sifter", "data.db")
 	}
 	token := os.Getenv("SIFTER_BEARER_TOKEN")
+	mcpURL := os.Getenv("XMCP_URL")
+	if mcpURL == "" {
+		mcpURL = "http://127.0.0.1:8000/mcp"
+	}
 	verbose := false
 
 	// グローバルフラグの解析
@@ -38,6 +44,11 @@ func Run(args []string) int {
 			if i+1 < len(args) {
 				i++
 				token = args[i]
+			}
+		case "--mcp-url":
+			if i+1 < len(args) {
+				i++
+				mcpURL = args[i]
 			}
 		case "--verbose", "-v":
 			verbose = true
@@ -67,14 +78,23 @@ func Run(args []string) int {
 		client.Verbose = verbose
 		app.Client = client
 	}
+	if mcpURL != "" {
+		mcp := mcpclient.New(mcpURL)
+		mcp.Verbose = verbose
+		app.MCP = mcp
+	}
 
 	switch remaining[0] {
 	case "sync":
 		return app.runSync(remaining[1:])
 	case "following":
 		return app.runFollowing(remaining[1:])
+	case "likes":
+		return app.runLikes(remaining[1:])
 	case "history":
 		return app.runHistory(remaining[1:])
+	case "debug":
+		return app.runDebug(remaining[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "不明なコマンド: %s\n", remaining[0])
 		printUsage()
@@ -86,14 +106,22 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, `使い方: sifter [flags] <command>
 
 コマンド:
-  sync following <username>       フォロー一覧を取得しDBにキャッシュ
-  following list <username>       キャッシュ済みフォロー一覧を表示
-  following diff <username>       前回との差分を表示
-  history <username>              同期履歴を表示
+  sync following <username>           フォロー一覧を取得しDBにキャッシュ
+  sync likes <username> [--full]      いいね投稿を取得しDBにキャッシュ (incremental が既定)
+  following list <username>           キャッシュ済みフォロー一覧を表示
+  following diff <username>           前回との差分を表示
+  following compare <base> <ref>      ref がフォローしていて base がフォローしていないユーザーを抽出
+  likes list <username>               いいね投稿一覧を表示 (--category, --unreviewed, --keyword)
+  likes show <username> <tweet_id>    いいね投稿の詳細表示
+  likes categorize <username>         未分類投稿をキーワードで分類
+  likes review <username> <ids...>    1on1セッション後にレビュー済みとしてマーク
+  likes stats <username>              統計表示
+  history <username>                  同期履歴を表示
 
 フラグ:
-  --db <path>     SQLiteパス (デフォルト: ~/.sifter/data.db)
-  --token <token> Bearer Token (環境変数: SIFTER_BEARER_TOKEN)
-  --verbose, -v   詳細出力
+  --db <path>      SQLiteパス (デフォルト: ~/.sifter/data.db)
+  --token <token>  Bearer Token (環境変数: SIFTER_BEARER_TOKEN)
+  --mcp-url <url>  xmcp HTTP エンドポイント (環境変数: XMCP_URL, デフォルト: http://127.0.0.1:8000/mcp)
+  --verbose, -v    詳細出力
 `)
 }

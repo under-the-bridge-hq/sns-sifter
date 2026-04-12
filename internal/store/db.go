@@ -37,6 +37,35 @@ CREATE TABLE IF NOT EXISTS following (
     PRIMARY KEY (source_user_id, target_user_id, sync_id)
 );
 CREATE INDEX IF NOT EXISTS idx_following_source ON following(source_user_id);
+
+CREATE TABLE IF NOT EXISTS liked_posts (
+    user_id     TEXT NOT NULL,
+    tweet_id    TEXT NOT NULL,
+    author_id   TEXT NOT NULL,
+    text        TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    fetched_at  TEXT NOT NULL,
+    category    TEXT,
+    reviewed_at TEXT,
+    raw_json    TEXT NOT NULL,
+    PRIMARY KEY (user_id, tweet_id)
+);
+CREATE INDEX IF NOT EXISTS idx_liked_posts_user ON liked_posts(user_id);
+CREATE INDEX IF NOT EXISTS idx_liked_posts_category ON liked_posts(category);
+CREATE INDEX IF NOT EXISTS idx_liked_posts_reviewed ON liked_posts(reviewed_at);
+CREATE INDEX IF NOT EXISTS idx_liked_posts_created ON liked_posts(created_at);
+
+CREATE TABLE IF NOT EXISTS knowledge_articles (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    title            TEXT NOT NULL,
+    body             TEXT NOT NULL,
+    category         TEXT NOT NULL,
+    tags             TEXT,
+    source_tweet_ids TEXT,
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_category ON knowledge_articles(category);
 `
 
 func Open(dbPath string) (*sql.DB, error) {
