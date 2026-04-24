@@ -35,6 +35,9 @@
 - **CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1** — Claude Code エージェントチーム実験フラグ
 - **ChatGPT で README 推敲** — 改善のたびに褒められる
 
+### 単発メモ (2026-04-24)
+- **t_wada『作って学ぶAIエージェント』** — @laiso 著。t_wada が買った報告 ([src](https://x.com/i/status/2046412969576423842))
+
 ### 蓄積待ち (samples 増やしてから蒸留する深掘りテーマ)
-- **Agent Harness 論** (現在 5 件) — 「harness」共通概念、Evals = エージェントのトレーニングデータ、prompting as skill
+- ~~**Agent Harness 論**~~ → **独立ディレクトリに蒸留済み**: [docs/knowledge/agent-harness/](agent-harness/) (2026-04-24)
 - **組織への AI 導入** (現在 11 件) — DeNA "AIにオールイン", Timee AI-DLC, LayerX 対談, 自分の登壇 (PEK2025, アーキテクチャCon)
