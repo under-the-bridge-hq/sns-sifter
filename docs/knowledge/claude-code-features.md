@@ -139,3 +139,20 @@ CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1
 **ソース**: [@L_go_mrk, 2026-04-15](https://x.com/i/status/2044392796749218220)
 
 **使い方インサイト**: TODO — ナレッジベース構築の別経路として検討。liked posts → NotebookLM でポッドキャスト化とか。
+
+---
+
+## Claude Code × Codex 連携 (レビュー・並列処理)
+
+**概要**: Claude Code のターミナルから OpenAI Codex を直接起動できる公式連携 (2026-03 末公開)。異なるモデルでのレビュー (アンサンブル効果)、並列処理、レビューゲート (AI 同士の自動改善ループ) が可能。
+
+**ソース**: [@masahirochaen, 2026-04-13](https://x.com/i/status/2043660643145019619) / [動画](https://youtu.be/wp3wLI3D4EQ)
+
+**3つのユースケース**:
+1. **レビュー**: Claude Code で作ったコード・資料を Codex にレビューさせる。異なるモデルでバグの見逃しを防ぐ
+2. **並列処理**: Claude Code でメイン作業しながら Codex でリサーチ・ドキュメント作成
+3. **レビューゲート**: Claude Code → Codex レビュー → 修正 → 再レビューをループ。AI 同士が自動で議論・改善
+
+**使い方**: `/codex` コマンド、または「codex レビューして」と指示。プロンプトに「作ったら Codex でレビューして」と事前に入れておくことも可能。
+
+**使い方インサイト**: sns-sifter の PR レビューに plugin として導入したい。Claude Code で実装 → Codex でレビューのゲートを skill 化するとハーネスの Sensors 強化になる。
