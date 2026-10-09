@@ -10,16 +10,17 @@ allowed-tools: Bash(./cmd/sifter/sifter *) Bash(make build)
 ## 手順
 
 1. ビルド確認: `make build`
-2. incremental sync: `./cmd/sifter/sifter sync likes kaz_utb`
-3. 未分類を分類: `./cmd/sifter/sifter likes categorize kaz_utb`
-4. 統計表示: `./cmd/sifter/sifter likes stats kaz_utb`
+2. `./cmd/sifter/sifter auth status` で保存済み資格情報を確認する
+3. incremental sync: `./cmd/sifter/sifter sync likes kaz_utb`
+4. 未分類を分類: `./cmd/sifter/sifter likes categorize kaz_utb`
+5. 統計表示: `./cmd/sifter/sifter likes stats kaz_utb`
 
 ## 前提
 
-- 環境変数 `SIFTER_BEARER_TOKEN` と `XMCP_URL` がセット済み
-- xmcp が起動済み (ai-commander の zellij セッション 'xmcp')
+- `sifter auth login` による OAuth 1.0a 資格情報が保存済み
+- 資格情報の既定の保存先は `~/.sifter/credentials.json`。変更した場合は `SIFTER_CREDENTIALS` を設定する
 
 ## エラー時
 
-- xmcp 未起動の場合: `http://127.0.0.1:8000/mcp` への接続失敗を報告し、起動手順を案内する
-- sync 失敗時: エラーメッセージをそのまま表示する
+- 資格情報がない場合は `sifter auth login` の手順を案内する
+- sync 失敗時はエラーメッセージをそのまま表示する
