@@ -2,26 +2,19 @@
 
 ## プロジェクト概要
 
-sns-sifter は X (旧Twitter) 上の情報をふるい分け・分析するツール群。
+sns-sifter は X (旧Twitter) 上の情報をふるい分け・分析する CLI ツール。
 特定ユーザーのフォロー × キーワードのクロス分析を通じて、有用な情報・ナレッジベースを構築する。
 
 ## アーキテクチャ
 
-2つのコンポーネントで構成。役割を明確に分離する:
-
-- **sifter CLI** (Go + SQLite) — 収集・蓄積・CLI レイヤー。バッチ収集、SQLite 永続化、フィルタ・分類、CLI を提供
-- **xmcp MCP サーバー** (Python) — X API ゲートウェイ。OAuth 認証 (1.0a User Context など) を集約。Claude Code から MCP として、sifter CLI から HTTP (JSON-RPC) として利用される
+sifter CLI (Go + SQLite) が X API を直接呼び出し、収集・蓄積・フィルタ・分類を行う。
 
 ### 設計方針
 
-- **xmcp は X API ゲートウェイ** — OAuth 認証を集約。Claude Code から MCP として、sifter から HTTP として利用される
-- **sifter は収集・蓄積・CLI レイヤー** — SQLite 永続化、バッチ収集、フィルタ・分類、CLI を提供
-- **認証の使い分け**:
-  - Bearer Token (App-Only): public timeline 等の読み取り。`sifter sync following` で直接使用
-  - OAuth 1.0a User Context: liked_tweets 等 user context 必須の API。**xmcp 経由**で叩く
-  - OAuth 2.0 PKCE: bookmarks 等。将来 xmcp に追加
-- sifter は user context が必要な API を呼ぶ場合、`http://127.0.0.1:8000/mcp` (環境変数 `XMCP_URL`) の xmcp に JSON-RPC でアクセスする
-- cron 運用 (現在は手動 sync 中。cron は様子見): ai-commander で xmcp を zellij 常駐 + cron で sifter 実行する想定 ([docs/operations/cron-setup.md](docs/operations/cron-setup.md))
+- X API 呼び出しは sifter の Go クライアントに集約する。
+- `sifter auth login` で OAuth 1.0a の認可を一度行い、資格情報を `~/.sifter/credentials.json` に保存する（権限 0600）。
+- 資格情報がある場合は全 API 呼び出しに OAuth 1.0a User Context を使う。ない場合は `SIFTER_BEARER_TOKEN` を使う。`sync likes` には保存済み資格情報が必要。
+- cron の設定例は [docs/operations/cron-setup.md](docs/operations/cron-setup.md) を参照。
 
 ### ナレッジベース構築フロー (1on1 review ワークフロー)
 
@@ -67,21 +60,24 @@ sns-sifter の主用途は、kaz_utb の X いいね投稿を一次情報とし�
 
 ```bash
 make build          # sifter CLI をビルド
-make setup          # xmcp の Python 依存をインストール
-make server         # xmcp MCP サーバーを起動
 ```
 
 ### sifter CLI の実行
 
 ```bash
-export SIFTER_BEARER_TOKEN=<token>    # xmcp/.env の X_BEARER_TOKEN と同じ値
-export XMCP_URL=http://127.0.0.1:8000/mcp  # likes 系で使用 (デフォルト値)
+export SIFTER_OAUTH_CONSUMER_KEY=<consumer-key>
+export SIFTER_OAUTH_CONSUMER_SECRET=<consumer-secret>
+./cmd/sifter/sifter auth login
+./cmd/sifter/sifter auth status
 
-# フォロー一覧 (Bearer Token で直接 X API)
+# 保存済み OAuth 資格情報がない場合の公開データ取得用
+# export SIFTER_BEARER_TOKEN=<bearer-token>
+
+# フォロー一覧
 ./cmd/sifter/sifter sync following <username>
 ./cmd/sifter/sifter following list <username> --filter "キーワード"
 
-# いいね投稿 (xmcp 経由 / OAuth 1.0a)
+# いいね投稿 (保存済み OAuth 1.0a 資格情報が必要)
 ./cmd/sifter/sifter sync likes <username>            # incremental
 ./cmd/sifter/sifter sync likes <username> --full     # full re-sync
 ./cmd/sifter/sifter likes categorize <username>      # キーワード分類
@@ -90,49 +86,39 @@ export XMCP_URL=http://127.0.0.1:8000/mcp  # likes 系で使用 (デフォルト
 ./cmd/sifter/sifter likes stats <username>
 ```
 
-### xmcp MCP サーバーの利用
+### ai-commander での OAuth 1.0a ログイン
 
-`make server` 後に Claude Code を再起動すると `.mcp.json` 経由で X API ツールが使える。
-
-#### リモート（ai-commander）で起動する場合
-
-OAuth1 認証のリダイレクトを Mac のブラウザで完結させるため、SSH ローカルポートフォワードを使う。X11 forwarding は不要。
+X Developer Console に `http://127.0.0.1:8976/oauth/callback` をコールバック URL として登録する。ai-commander 上でログインする場合は、Mac のブラウザからコールバックへ到達できるように SSH ポートフォワードを使う。
 
 ```bash
 # Mac のターミナルから: コールバックポート(8976)をフォワード
 ssh -L 8976:127.0.0.1:8976 ai-commander
 
-# ai-commander 内: zellij/tmux で分離してから起動（SSH 切断対策）
-zellij attach xmcp || zellij -s xmcp
-cd ~/git/github.com/under-the-bridge-hq/sns-sifter
-make server
+# ai-commander 内: 認証情報を設定してログイン
+export SIFTER_OAUTH_CONSUMER_KEY=<consumer-key>
+export SIFTER_OAUTH_CONSUMER_SECRET=<consumer-secret>
+./cmd/sifter/sifter auth login
 ```
 
-`make server` の stdout に OAuth 認可 URL が表示されるので、Mac のブラウザにコピペして開く。X 側で許可するとリダイレクト先 `http://127.0.0.1:8976/oauth/callback` が SSH トンネル経由で ai-commander の xmcp に戻り、OAuth が完走する。
-
-完走後、`Ctrl+p d` で zellij をデタッチすれば SSH を切ってもサーバは生存する。Claude Code を再起動すると `.mcp.json` 経由で X API ツールが利用可能になる。
-
-`XMCP_AUTO_OPEN_BROWSER=1` を設定するとローカルブラウザの自動起動を試みる（GUI 環境向け）。
+stdout に表示された認可 URL を Mac のブラウザで開く。認可後のコールバックは SSH トンネル経由で ai-commander の sifter に届く。保存内容は `sifter auth status` で確認する。
 
 ## コスト注意事項
 
-X API は PPU（Pay-Per-Use）プラン。読み取り $0.005/件 (= レスポンスに含まれた tweet 数で課金)。
+X API は従量課金。Post Read は $0.005/件、User Read と Following Read は各 $0.010/件。認証ユーザーと対象 ID が一致し、そのユーザーが開発アプリの所有者なら、自分の `liked_tweets` は Owned Reads の $0.001/件が適用される（[公式料金表](https://docs.x.com/x-api/getting-started/pricing)）。
 
 - **sifter CLI のキャッシュを優先** — フォロー一覧等は2回目以降 DB から
-- **likes sync は incremental + max=5 推奨** — `--max 5` で 1 sync 最低 $0.025、新規 N 件で `(N+5) × $0.005`
-- **大量フォローユーザーの分析は高額** — 1000人 = $5.00/回
-- **試算例 (1日1回 sync, 新規10件/日想定)**: 月 $2.25, 年 $27 — [docs/operations/cron-setup.md](docs/operations/cron-setup.md) 参照
+- **likes sync は incremental + max=5** — 5件返れば Owned Reads は $0.005、通常の Post Read は $0.025。実際の課金は返却件数と適用区分による
+- **大量フォローユーザーの分析** — 1000人の通常の Following Read は $10.00。Owned Reads の条件を満たす自分の following なら $1.00
+- **日次 sync の試算** — [docs/operations/cron-setup.md](docs/operations/cron-setup.md) を参照
 
 ## ディレクトリ構成
 
 ```
 cmd/sifter/         Go CLI エントリポイント
 internal/cli/       CLI コマンド実装 (sync, following, likes, history)
-internal/xapi/      X API v2 クライアント（net/http 直接, Bearer Token 用）
-internal/mcpclient/ xmcp MCP HTTP クライアント (JSON-RPC + SSE)
+internal/xapi/      X API v2 クライアント（OAuth 1.0a / Bearer Token）
 internal/store/     SQLite 永続化層 (users, following, liked_posts, knowledge_articles)
 internal/domain/    ビジネスロジック (diff, classifier)
-xmcp/               X API MCP サーバー（サブモジュール）
 docs/operations/    運用・設計ドキュメント
 docs/knowledge/     1on1 review で育てる知識ベース
 ```
@@ -142,8 +128,7 @@ docs/knowledge/     1on1 review で育てる知識ベース
 運用・設計 (`docs/operations/`):
 - [設計方針・経緯](docs/operations/design-decisions.md) — アーキテクチャ判断、コスト最適化、今後の拡張予定
 - [sifter CLI リファレンス](docs/operations/sifter-cli.md) — コマンド、スキーマ、コスト最適化
-- [X API リファレンス](docs/operations/x-api.md) — エンドポイント、料金、ツール一覧
-- [xmcp MCP サーバー](docs/operations/xmcp.md) — セットアップ、認証、トラブルシューティング
+- [X API リファレンス](docs/operations/x-api.md) — エンドポイント、認証、料金
 - [cron セットアップ](docs/operations/cron-setup.md) — ai-commander での定期 sync 手順 (Ansible 対応)
 
 知識ベース (`docs/knowledge/` — 1on1 review で育てる):

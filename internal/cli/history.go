@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/under-the-bridge-hq/sns-sifter/internal/store"
+	"github.com/under-the-bridge-hq/sns-sifter/internal/xapi"
 )
 
 func (a *App) runHistory(args []string) int {
@@ -40,7 +41,7 @@ func (a *App) runHistory(args []string) int {
 	fmt.Printf("  %-4s  %-20s  %-10s  %-6s  %-10s  %s\n", "----", "--------------------", "----------", "------", "----------", "----------")
 
 	for _, r := range records {
-		cost := fmt.Sprintf("$%.2f", float64(r.TotalFetched)*0.005)
+		cost := fmt.Sprintf("$%.2f", float64(r.TotalFetched)*xapi.PriceFollowingRead)
 		fmt.Printf("  %-4d  %-20s  %-10s  %-6d  %-10d  %s\n",
 			r.ID,
 			r.StartedAt.Local().Format("2006-01-02 15:04:05"),

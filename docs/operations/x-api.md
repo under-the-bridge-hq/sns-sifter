@@ -1,109 +1,45 @@
 # X API v2 リファレンス
 
-## 概要
+## アクセスと認証
 
-X (旧Twitter) API v2 は REST ベースの API。sns-sifter では以下の2つの方法でアクセスする:
-- **xmcp MCP サーバー** — Claude Code から対話的に利用
-- **sifter CLI** — Go で直接 API を呼び出し、SQLite にキャッシュ
+sifter CLI は Go の HTTP クライアントから X API v2 を直接呼び出す。保存済み OAuth 1.0a 資格情報があれば全 API 呼び出しに使い、なければ `SIFTER_BEARER_TOKEN` による App-only 認証を使う。`sync likes` は OAuth 1.0a 資格情報を必要とする。
 
-## 認証
+`sifter auth login` は Consumer Key/Secret を使って認可 URL を表示し、OAuth 1.0a の認可後に Access Token/Secret を `~/.sifter/credentials.json`（権限 0600）へ保存する。保存先は `SIFTER_CREDENTIALS` で変更できる。OAuth 1.0a Access Token は期限切れしないが、利用者が失効させることはできる。[X 公式 OAuth 1.0a ガイド](https://docs.x.com/fundamentals/authentication/oauth-1-0a/obtaining-user-access-tokens) を参照。
 
-### Bearer Token (App-only)
+X の [認証マッピング](https://docs.x.com/fundamentals/authentication/guides/v2-authentication-mapping) は `GET /2/users/:id/liked_tweets` の OAuth 1.0a User Context 対応を示している。
 
-sifter CLI で使用。公開ユーザーのフォロー一覧取得等に十分。
+## 料金
 
-```
-Authorization: Bearer <token>
-```
+[X 公式料金表](https://docs.x.com/x-api/getting-started/pricing) の従量課金区分を参照。料金は変更されるため、実行前に Developer Console の表示を確認する。
 
-### OAuth 1.0a (User Context)
+| 対象 | 単価 |
+|---|---:|
+| Post Read | $0.005/件 |
+| Owned Reads | $0.001/件 |
+| User Read | $0.010/件 |
+| Following/Followers Read | $0.010/件 |
 
-xmcp MCP サーバーで使用。投稿・いいね等のユーザー操作に必要。
-起動時にブラウザで認証フローが実行される。
+Owned Reads は認証ユーザー ID がパスの `{id}` と一致し、そのユーザーが開発アプリの所有者である場合、自分の `liked_tweets` や `following` などに適用される。月間上限は 300 万 Post Read。
 
-必要な認証情報:
-- `X_OAUTH_CONSUMER_KEY`
-- `X_OAUTH_CONSUMER_SECRET`
-- `X_BEARER_TOKEN`
+| 操作 | 件数 | 通常の読み取り | Owned Reads の条件を満たす場合 |
+|---|---:|---:|---:|
+| いいね投稿の取得 | 5件 | $0.025 | $0.005 |
+| フォロー一覧の取得 | 100件 | $1.00 | $0.10 |
+| フォロー一覧の取得 | 1000件 | $10.00 | $1.00 |
+| ユーザー情報の取得 | 1件 | $0.010 | 対象外 |
 
-## 料金（PPU プラン）
+表は単価と返却件数による計算例。X の 24 時間 UTC 単位の重複課金排除など、実際の請求条件は公式料金表を参照する。
 
-2026年2月以降、新規開発者は Pay-Per-Use が唯一の選択肢。
+## 使用するエンドポイント
 
-| 操作 | 単価 |
-|------|------|
-| 投稿読み取り | $0.005/件 |
-| 投稿作成 | $0.01/件 |
+| エンドポイント | 用途 | 主なパラメータ |
+|---|---|---|
+| `GET /2/users/by/username/:username` | ユーザー名から ID を解決 | `user.fields` |
+| `GET /2/users/:id/following` | フォロー一覧を取得 | `max_results`, `pagination_token`, `user.fields` |
+| `GET /2/users/:id/liked_tweets` | いいね投稿を取得 | `max_results`（5～100）, `pagination_token`, `tweet.fields`, `expansions`, `user.fields` |
 
-月間上限: 200万投稿読み取り（超過は Enterprise が必要）
+ページングはレスポンスの `meta.next_token` を次リクエストの `pagination_token` に渡す。いいね投稿はページごとに SQLite へ保存する。
 
-### コスト例
+## レート制限
 
-| 操作 | 件数 | コスト |
-|------|------|--------|
-| フォロー一覧取得（1000人） | 1000 | $5.00 |
-| フォロー一覧取得（100人） | 100 | $0.50 |
-| ユーザー情報取得（1件） | 1 | $0.005 |
-
-## sifter CLI が使用するエンドポイント
-
-### GET /2/users/by/username/:username
-
-ユーザー名から ID を解決する。
-
-```
-GET /2/users/by/username/kaz_utb?user.fields=id,username,name,description,public_metrics
-```
-
-### GET /2/users/:id/following
-
-指定ユーザーのフォロー一覧を取得する。
-
-```
-GET /2/users/1836555519273910272/following?user.fields=id,username,name,description,public_metrics&max_results=1000
-```
-
-- `max_results`: 最大1000（ページサイズ最大化でコスト削減）
-- `pagination_token`: 次ページのトークン（レスポンスの `meta.next_token`）
-
-### レート制限
-
-- ヘッダ `x-rate-limit-remaining` が 0 になったら `x-rate-limit-reset` まで待機
-- sifter CLI は自動待機を実装済み
-
-## xmcp MCP サーバーが提供するツール
-
-### 読み取り系
-| ツール | エンドポイント | 用途 |
-|--------|---------------|------|
-| `searchPostsRecent` | POST /2/tweets/search/recent | 最近7日間の投稿検索 |
-| `getPostsById` | GET /2/tweets/:id | 特定投稿の取得 |
-| `getUsersMe` | GET /2/users/me | 認証ユーザー情報 |
-| `getUsersById` | GET /2/users/:id | ユーザー情報取得 |
-| `getUsersByUsername` | GET /2/users/by/username/:username | ユーザー名で取得 |
-| `searchUsers` | GET /2/users/search | ユーザー検索 |
-| `getUsersFollowers` | GET /2/users/:id/followers | フォロワー一覧 |
-| `getUsersFollowing` | GET /2/users/:id/following | フォロー一覧 |
-| `getTrendsByWoeid` | GET /2/trends/by/woeid/:woeid | トレンド取得 |
-| `getPostsLikingUsers` | GET /2/tweets/:id/liking_users | いいねユーザー |
-| `getPostsQuotedPosts` | GET /2/tweets/:id/quote_tweets | 引用ポスト |
-| `getPostsReposts` | GET /2/tweets/:id/retweets | リポスト |
-
-### 書き込み系
-| ツール | エンドポイント | 用途 |
-|--------|---------------|------|
-| `createPosts` | POST /2/tweets | 投稿作成 |
-| `followUser` | POST /2/users/:id/following | フォロー |
-| `unfollowUser` | DELETE /2/users/:source_id/following/:target_id | フォロー解除 |
-| `likePost` | POST /2/users/:id/likes | いいね |
-| `repostPost` | POST /2/users/:id/retweets | リポスト |
-
-### ツール制限の設定
-
-`xmcp/.env` の `X_API_TOOL_ALLOWLIST` でカンマ区切りで指定:
-
-```
-X_API_TOOL_ALLOWLIST=searchPostsRecent,getPostsById,getUsersById,...
-```
-
-全ツール（130+）を有効にすると Claude Code の読み込みがタイムアウトするため、必要なツールのみに絞ること。
+HTTP 429 が返った場合、sifter は `x-rate-limit-reset` に従って待機し、最大 3 回再試行する。1 回の待機上限は既定で 15 分。環境変数 `SIFTER_RATE_LIMIT_MAX_WAIT` で変更できる。
