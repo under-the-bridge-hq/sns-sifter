@@ -27,8 +27,8 @@ func (a *App) runSync(args []string) int {
 }
 
 func (a *App) syncLikes(args []string) int {
-	if a.MCP == nil {
-		fmt.Fprintln(os.Stderr, "MCP クライアントが未初期化です。--mcp-url または XMCP_URL を設定してください。")
+	if a.Client == nil || !a.Client.HasOAuth1() {
+		fmt.Fprintln(os.Stderr, "liked_tweets には OAuth 1.0a User Context が必要です。`sifter auth login` を実行してください。")
 		return 1
 	}
 	if len(args) == 0 {
@@ -81,49 +81,59 @@ func (a *App) syncLikes(args []string) int {
 		username, mode, maxResults, maxPages)
 
 	var (
-		allTweets   []xapi.Tweet
-		authorMap   = map[string]xapi.User{}
-		apiCalls    int
-		token       string
-		hitKnown    bool
+		totalFetched  int // 新規として取り込んだ件数
+		totalReturned int // API が返した件数 (課金対象)
+		totalNew      int
+		apiCalls      int
+		token         string
+		hitKnown      bool
 	)
 
 	for page := 0; page < maxPages; page++ {
-		args := map[string]any{
-			"id":           user.ID,
-			"max_results":  maxResults,
-			"tweet.fields": []string{"id", "text", "author_id", "created_at"},
-			"expansions":   []string{"author_id"},
-			"user.fields":  []string{"id", "username", "name", "description", "public_metrics"},
-		}
-		if token != "" {
-			args["pagination_token"] = token
-		}
-
-		var resp xapi.TweetsResponse
-		if err := a.MCP.CallTool("getUsersLikedPosts", args, &resp); err != nil {
+		resp, err := a.Client.GetLikedPostsPage(user.ID, maxResults, token)
+		if err != nil {
 			store.FailSync(a.DB, syncID, err.Error())
-			fmt.Fprintf(os.Stderr, "MCP エラー: %v\n", err)
+			fmt.Fprintf(os.Stderr, "APIエラー: %v\n", err)
 			return 1
 		}
 		apiCalls++
+		totalReturned += len(resp.Data)
 
+		var newTweets []xapi.Tweet
 		for _, t := range resp.Data {
 			if !full {
-				exists, _ := store.LikedPostExists(a.DB, user.ID, t.ID)
+				exists, err := store.LikedPostExists(a.DB, user.ID, t.ID)
+				if err != nil {
+					store.FailSync(a.DB, syncID, err.Error())
+					fmt.Fprintf(os.Stderr, "DBエラー (LikedPostExists): %v\n", err)
+					return 1
+				}
 				if exists {
 					hitKnown = true
 					break
 				}
 			}
-			allTweets = append(allTweets, t)
+			newTweets = append(newTweets, t)
 		}
-		for _, u := range resp.Includes.Users {
-			authorMap[u.ID] = u
+		totalFetched += len(newTweets)
+
+		if len(newTweets) > 0 {
+			if err := store.UpsertUsers(a.DB, resp.Includes.Users); err != nil {
+				store.FailSync(a.DB, syncID, err.Error())
+				fmt.Fprintf(os.Stderr, "DB保存エラー (authors): %v\n", err)
+				return 1
+			}
+			n, err := store.InsertLikedPosts(a.DB, user.ID, newTweets, "")
+			if err != nil {
+				store.FailSync(a.DB, syncID, err.Error())
+				fmt.Fprintf(os.Stderr, "DB保存エラー (tweets): %v\n", err)
+				return 1
+			}
+			totalNew += n
 		}
 
 		fmt.Printf("  page %d: 取得 %d 件 (新規累計: %d, next=%s)\n",
-			page+1, len(resp.Data), len(allTweets), truncToken(resp.Meta.NextToken))
+			page+1, len(resp.Data), totalFetched, truncToken(resp.Meta.NextToken))
 
 		if hitKnown || resp.Meta.NextToken == "" {
 			break
@@ -131,36 +141,22 @@ func (a *App) syncLikes(args []string) int {
 		token = resp.Meta.NextToken
 	}
 
-	authors := make([]xapi.User, 0, len(authorMap))
-	for _, u := range authorMap {
-		authors = append(authors, u)
-	}
-
-	if err := store.UpsertUsers(a.DB, authors); err != nil {
-		store.FailSync(a.DB, syncID, err.Error())
-		fmt.Fprintf(os.Stderr, "DB保存エラー (authors): %v\n", err)
-		return 1
-	}
-
-	inserted, err := store.InsertLikedPosts(a.DB, user.ID, allTweets, "")
-	if err != nil {
-		store.FailSync(a.DB, syncID, err.Error())
-		fmt.Fprintf(os.Stderr, "DB保存エラー (tweets): %v\n", err)
-		return 1
-	}
-
-	if err := store.CompleteSync(a.DB, syncID, inserted, apiCalls); err != nil {
+	if err := store.CompleteSync(a.DB, syncID, totalNew, apiCalls); err != nil {
 		fmt.Fprintf(os.Stderr, "DB更新エラー: %v\n", err)
 		return 1
 	}
 
-	cost := float64(len(allTweets)) * 0.005
-	fmt.Printf("\n完了: 新規 %d 件 / 取得 %d 件 (APIコール: %d, 推定コスト: $%.3f)\n",
-		inserted, len(allTweets), apiCalls, cost)
+	unit := xapi.PricePostRead
+	if a.Creds != nil && a.Creds.UserID == user.ID {
+		unit = xapi.PriceOwnedRead
+	}
+	cost := float64(totalReturned) * unit
+	fmt.Printf("\n完了: 新規 %d 件 / 取得 %d 件 (APIコール: %d, 推定コスト: $%.3f = 返却 %d件 × $%.3f)\n",
+		totalNew, totalFetched, apiCalls, cost, totalReturned, unit)
 	return 0
 }
 
-// resolveUser は username からユーザーを解決する。DB キャッシュ → 必要なら xmcp 経由で取得。
+// resolveUser は username からユーザーを解決する。DB キャッシュ → 必要なら API で取得。
 func (a *App) resolveUser(username string) (*xapi.User, error) {
 	user, err := store.GetUserByUsername(a.DB, username)
 	if err != nil {
@@ -169,25 +165,8 @@ func (a *App) resolveUser(username string) (*xapi.User, error) {
 	if user != nil {
 		return user, nil
 	}
-	if a.MCP != nil {
-		fmt.Printf("@%s のユーザー情報を取得中 (xmcp 経由)...\n", username)
-		var resp struct {
-			Data xapi.User `json:"data"`
-		}
-		err := a.MCP.CallTool("getUsersByUsername", map[string]any{
-			"username":    username,
-			"user.fields": []string{"id", "username", "name", "description", "public_metrics"},
-		}, &resp)
-		if err != nil {
-			return nil, fmt.Errorf("MCP getUsersByUsername エラー: %w", err)
-		}
-		if err := store.UpsertUser(a.DB, &resp.Data); err != nil {
-			return nil, fmt.Errorf("DB保存エラー: %w", err)
-		}
-		return &resp.Data, nil
-	}
 	if a.Client != nil {
-		fmt.Printf("@%s のユーザー情報を取得中 (Bearer 経由)...\n", username)
+		fmt.Printf("@%s のユーザー情報を取得中 ...\n", username)
 		u, err := a.Client.GetUserByUsername(username)
 		if err != nil {
 			return nil, fmt.Errorf("APIエラー: %w", err)
@@ -197,7 +176,7 @@ func (a *App) resolveUser(username string) (*xapi.User, error) {
 		}
 		return u, nil
 	}
-	return nil, fmt.Errorf("@%s のユーザー情報がありません。Bearer Token または MCP URL を設定してください", username)
+	return nil, fmt.Errorf("@%s のユーザー情報がありません。Bearer Token または `sifter auth login` を設定してください", username)
 }
 
 func truncToken(t string) string {
@@ -302,7 +281,7 @@ func (a *App) syncFollowing(args []string) int {
 		return 1
 	}
 
-	cost := float64(len(users)) * 0.005
-	fmt.Printf("\n完了: %d件同期 (APIコール: %d, 推定コスト: $%.2f)\n", len(users), apiCalls, cost)
+	cost := float64(len(users)) * xapi.PriceFollowingRead
+	fmt.Printf("\n完了: %d件同期 (APIコール: %d, 推定コスト: $%.2f = %d件 × $%.3f)\n", len(users), apiCalls, cost, len(users), xapi.PriceFollowingRead)
 	return 0
 }
