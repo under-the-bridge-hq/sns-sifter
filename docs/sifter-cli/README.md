@@ -29,7 +29,7 @@ Consumer Key/Secret は `sifter auth login --consumer-key <key> --consumer-secre
 
 コールバックは `SIFTER_OAUTH_CALLBACK_HOST`（既定 `127.0.0.1`）と `SIFTER_OAUTH_CALLBACK_PORT`（既定 `8976`）で設定できる。パスは `/oauth/callback`、待機時間は 300 秒。
 
-ai-commander で Mac のブラウザを使う場合は、Mac のターミナルから `ssh -L 8976:127.0.0.1:8976 ai-commander` で接続し、その接続上で `sifter auth login` を実行する。ブラウザからのコールバックは SSH トンネル経由で ai-commander に届く。
+sifter CLI は kaz の Mac で実行する。リモートホストで実行する場合は、Mac から `ssh -L 8976:127.0.0.1:8976 <host>` で接続し、その接続上で `sifter auth login` を実行するとコールバックが SSH トンネル経由で届く。
 
 保存済み OAuth 1.0a 資格情報があれば全 API 呼び出しに使用し、なければ `SIFTER_BEARER_TOKEN` による App-only 認証を使う。`sync likes` には保存済み資格情報が必要。OAuth 1.0a Access Token は期限切れしないが、利用者が失効させることはできる（[X 公式ガイド](https://docs.x.com/fundamentals/authentication/oauth-1-0a/obtaining-user-access-tokens)）。
 
