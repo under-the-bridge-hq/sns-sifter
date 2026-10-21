@@ -1,11 +1,11 @@
-# cron セットアップ手順 (ai-commander)
+# cron セットアップ手順
 
-ai-commander 上で `sync likes` を日次実行する設定例。sifter が X API を直接呼び出すため、別の常駐プロセスは必要ない。
+`sync likes` を日次実行する設定例。実行場所は kaz の Mac を想定し、パスは `$HOME` 基準で書く。sifter が X API を直接呼び出すため、別の常駐プロセスは必要ない。
 
 ## 事前準備
 
 1. `make build` で sifter CLI をビルドする。
-2. `sifter auth login` で OAuth 1.0a 資格情報を保存する。ai-commander で Mac のブラウザを使う手順は [sifter CLI リファレンス](sifter-cli.md) を参照。
+2. `sifter auth login` で OAuth 1.0a 資格情報を保存する。手順は [sifter CLI リファレンス](README.md) を参照。
 3. `sifter auth status` で保存先・screen_name・user_id を確認する。
 4. 手動で `sifter sync likes kaz_utb --max 5 --max-pages 20` を実行して動作を確認する。
 
@@ -16,7 +16,7 @@ ai-commander 上で `sync likes` を日次実行する設定例。sifter が X A
 毎朝 6:00 に `kaz_utb` のいいねを incremental sync し、成功時に分類する例:
 
 ```crontab
-0 6 * * * cd /home/kaz/git/github.com/under-the-bridge-hq/sns-sifter && SIFTER_DB=/home/kaz/.sifter/data.db ./cmd/sifter/sifter sync likes kaz_utb --max 5 --max-pages 20 >> /home/kaz/.sifter/cron.log 2>&1 && SIFTER_DB=/home/kaz/.sifter/data.db ./cmd/sifter/sifter likes categorize kaz_utb >> /home/kaz/.sifter/cron.log 2>&1
+0 6 * * * cd $HOME/git/github.com/under-the-bridge-hq/sns-sifter && SIFTER_DB=$HOME/.sifter/data.db ./cmd/sifter/sifter sync likes kaz_utb --max 5 --max-pages 20 >> $HOME/.sifter/cron.log 2>&1 && SIFTER_DB=$HOME/.sifter/data.db ./cmd/sifter/sifter likes categorize kaz_utb >> $HOME/.sifter/cron.log 2>&1
 ```
 
 両コマンドに同じ DB パスを渡す。`--full` を指定しなければ incremental sync。`--max-pages 20` は最大 20 ページ、`--max 5` は 1 ページ最大 5 件であり、合計の取得上限は 100 件。cron は同じ OS ユーザーで実行し、そのユーザーが保存済み資格情報を読めるようにする。
@@ -60,7 +60,7 @@ ai-commander 上で `sync likes` を日次実行する設定例。sifter が X A
 ## 動作確認
 
 ```bash
-SIFTER_DB=/home/kaz/.sifter/data.db ./cmd/sifter/sifter sync likes kaz_utb --max 5 --max-pages 20
-SIFTER_DB=/home/kaz/.sifter/data.db ./cmd/sifter/sifter likes stats kaz_utb
-tail -f /home/kaz/.sifter/cron.log
+SIFTER_DB=$HOME/.sifter/data.db ./cmd/sifter/sifter sync likes kaz_utb --max 5 --max-pages 20
+SIFTER_DB=$HOME/.sifter/data.db ./cmd/sifter/sifter likes stats kaz_utb
+tail -f $HOME/.sifter/cron.log
 ```

@@ -41,7 +41,6 @@ argument-hint: "[category: ai|work|other]"
 - 同テーマで継続的に情報流入あり → 継続蓄積記事
 - 類似サンプルを増やしてから整理したい → 蓄積待ち
 
-## 蓄積待ち中のテーマ (参考)
+## テーマ
 
-- **Agent Harness 論** — "harness" 共通概念 / Evals / prompting as skill
-- **組織への AI 導入** — DeNA / Timee / LayerX 対談 / kaz_utb 登壇
+AI / Coding Agent / 組織での AI 利用（[AGENTS.md](../../../AGENTS.md) の「キュレーションのテーマ」）。蓄積待ちの候補は `docs/knowledge/notes.md` の末尾に残す。
