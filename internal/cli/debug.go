@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/under-the-bridge-hq/sns-sifter/internal/store"
+	"github.com/under-the-bridge-hq/sns-sifter/internal/xapi"
 )
 
 func (a *App) runDebug(args []string) int {
@@ -65,10 +66,10 @@ func (a *App) debugFollowingPage(args []string) int {
 		return 1
 	}
 
-	estCost := float64(maxResults) * 0.005
+	estCost := float64(maxResults) * xapi.PriceFollowingRead
 	fmt.Printf("デバッグ実行: @%s (id=%s) の following を取得します\n", username, user.ID)
 	fmt.Printf("  max_results=%d  pagination_token=%q\n", maxResults, paginationToken)
-	fmt.Printf("  推定コスト: $%.4f (%d件 × $0.005)\n\n", estCost, maxResults)
+	fmt.Printf("  推定コスト: $%.4f (%d件 × $%.3f)\n\n", estCost, maxResults, xapi.PriceFollowingRead)
 
 	params := map[string]string{
 		"user.fields": "id,username,name,description,public_metrics",

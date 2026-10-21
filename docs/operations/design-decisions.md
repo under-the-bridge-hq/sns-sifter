@@ -9,16 +9,16 @@ X (旧Twitter) 上の情報をふるい分け、有用なナレッジベース�
 
 ### sifter CLI（Go + SQLite）— 情報収集・分析の主軸
 
-- **Bearer Token 認証のみ**。OAuth 1.0a / MCP に依存しない
+- OAuth 1.0a の保存済み資格情報があれば全 API 呼び出しに使用。なければ Bearer Token を使用
 - ローカル SQLite にキャッシュし、API コストを最小化
 - バッチ処理向き。自動化・定期実行に適する
 - 読み取り専用操作のみ
 
-### xmcp MCP サーバー（Python）— 書き込み操作
+### xmcp 経由から Go 直接呼び出しへの移行
 
-- Claude Code から対話的にフォロー/投稿/いいね等を実行
-- OAuth 1.0a 認証（ブラウザでの認可フロー）
-- バッチ処理には不向き（レート制限のハンドリングが弱い）
+2026 年 4 月の [PR #4](https://github.com/under-the-bridge-hq/sns-sifter/pull/4) で、いいね投稿の収集に xmcp の HTTP MCP クライアントが追加された。その構成では、いいね投稿の同期に xmcp の起動、OAuth 認可、常駐が必要だった。2026 年 10 月、sifter が OAuth 1.0a で X API を直接呼び出す構成に変更し、xmcp を削除することが決定された。日次同期に別プロセスは不要になる。
+
+`sifter auth login` で Access Token/Secret を一度取得して `~/.sifter/credentials.json` に権限 0600 で保存する。いいね投稿の同期には保存済み資格情報が必要。[X 公式認証マッピング](https://docs.x.com/fundamentals/authentication/guides/v2-authentication-mapping) は `GET /2/users/:id/liked_tweets` の OAuth 1.0a User Context 対応を示している。
 
 ## 技術選定の理由
 
@@ -45,7 +45,7 @@ X (旧Twitter) 上の情報をふるい分け、有用なナレッジベース�
 
 ## API コスト最適化
 
-X API は PPU（Pay-Per-Use）プラン。読み取り $0.005/件。
+X API は従量課金。[現行の公式料金表](https://docs.x.com/x-api/getting-started/pricing) では Post Read は $0.005/件、User Read と Following/Followers Read は各 $0.010/件。認証ユーザーと対象 ID が一致し、そのユーザーが開発アプリ所有者であれば、自分の `liked_tweets` や `following` などは Owned Reads の $0.001/件が適用される。
 
 ### コスト実績
 
@@ -54,6 +54,18 @@ X API は PPU（Pay-Per-Use）プラン。読み取り $0.005/件。
 | kaz_utb フォロー一覧取得 | 57件 | $0.29 |
 | zigorou フォロー一覧取得 | 1000件 | $5.00 |
 
+この表は 2026 年 4 月時点の実績。当時は $0.005/件で課金された。現行単価を当てはめた再計算値ではない。
+
+### 現行単価による計算例
+
+| 操作 | 件数 | 通常の読み取り | Owned Reads 適用時 |
+|---|---:|---:|---:|
+| フォロー一覧取得 | 57件 | $0.57 | $0.057 |
+| フォロー一覧取得 | 1000件 | $10.00 | $1.00 |
+| いいね投稿取得 | 5件 | $0.025 | $0.005 |
+
+Owned Reads 列は認証ユーザーと対象 ID が一致し、そのユーザーが開発アプリ所有者である場合の計算例。
+
 ### 最適化戦略
 
 1. **ページサイズ最大化**: `max_results=1000`
@@ -61,38 +73,14 @@ X API は PPU（Pay-Per-Use）プラン。読み取り $0.005/件。
 3. **username→ID キャッシュ**: 2回目以降は DB から解決（API コール 0）
 4. **差分検出は DB 内で完結**: SQL クエリのみ（API コール 0）
 5. **フィルタはローカル**: `following list --filter` は DB 検索のみ
-6. **取得済みデータの再利用**: MCP で取得した結果を DB にインポート可能（Python スクリプト）
+
+いいね投稿は取得ページごとに SQLite に保存する。
 
 ### レート制限の注意
 
 - フォロー API（POST）: 15分あたり約 30 リクエストでレート制限
 - フォロー一覧取得（GET）: 比較的緩い
-- レート制限到達時は `x-rate-limit-reset` ヘッダに従い自動待機
-
-## xmcp MCP サーバーの注意事項
-
-### ツール数制限
-
-xmcp はデフォルトで 130+ ツールを登録する。Claude Code のツール読み込みがタイムアウトするため、`X_API_TOOL_ALLOWLIST` で必要なツールのみに絞ること。
-
-### .mcp.json の設定
-
-`"type": "http"` が必須。これがないと Claude Code が認識しない。
-
-```json
-{
-  "mcpServers": {
-    "x-api": {
-      "type": "http",
-      "url": "http://127.0.0.1:8000/mcp"
-    }
-  }
-}
-```
-
-### 投稿の文字数制限
-
-X の無料プランは 280 文字制限（日本語は 1 文字 = 2 カウント）。API 経由で超過すると 403 Forbidden が返る（エラーメッセージが分かりにくい）。
+- レート制限到達時は `x-rate-limit-reset` ヘッダに従い待機。最大 3 回再試行し、1 回の待機上限は既定 15 分（`SIFTER_RATE_LIMIT_MAX_WAIT` で変更）
 
 ## 今後の拡張予定
 
@@ -100,7 +88,7 @@ X の無料プランは 280 文字制限（日本語は 1 文字 = 2 カウン�
 
 1. **`sifter search` コマンド** — フォロー中ユーザーの投稿をキーワード検索してキャッシュ（ナレッジ化のコア機能）
 2. **`sifter following suggest` コマンド** — 他ユーザーのフォロー × キーワードでフォロー候補を検出
-3. **レート制限のペーシング** — バッチ処理時の自動待機
+3. **レート制限のペーシング** — バッチ処理時の待機方法の改善
 
 ### 将来的な構想
 

@@ -21,3 +21,6 @@ cmd/sifter/sifter
 
 # Claude Code
 CLAUDE.local.md
+
+# Git worktrees
+.worktrees/
